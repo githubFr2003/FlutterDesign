@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 // Keep TaskPriority enum from previous version
 enum TaskPriority { low, medium, high }
 
@@ -32,5 +34,39 @@ class Task {
       Task(id: '6', title: 'Schedule team meeting', createdAt: now.subtract(const Duration(hours: 1)), priority: TaskPriority.medium, isCompleted: false, dueDate: now.add(const Duration(days: 2))),
       Task(id: '7', title: 'Water the plants', createdAt: now.subtract(const Duration(days: 4)), priority: TaskPriority.low, isCompleted: false),
     ];
+  }
+
+  factory Task.fromFirestore(Map<String, dynamic> data, String id) {
+    return Task(
+      id: id,
+      title: data['title'] ?? '',
+      description: data['description'],
+      isCompleted: data['isCompleted'] ?? false,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      dueDate: data['dueDate'] != null ? (data['dueDate'] as Timestamp).toDate() : null,
+      priority: _priorityFromString(data['priority'] ?? 'medium'),
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'title': title,
+      'description': description,
+      'isCompleted': isCompleted,
+      'createdAt': createdAt,
+      'dueDate': dueDate,
+      'priority': priority.name,
+    };
+  }
+
+  static TaskPriority _priorityFromString(String value) {
+    switch (value) {
+      case 'low':
+        return TaskPriority.low;
+      case 'high':
+        return TaskPriority.high;
+      default:
+        return TaskPriority.medium;
+    }
   }
 }

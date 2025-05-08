@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_activity/models/task.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter_activity/services/task_service.dart';
 
 class AddEditTaskScreen extends StatefulWidget {
   final Task? taskToEdit;
@@ -45,14 +46,12 @@ class _AddEditTaskScreenState extends State<AddEditTaskScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
     );
 
-    if (pickedDate != null) {
-      setState(() {
-        _selectedDueDate = pickedDate;
-      });
+    setState(() {
+      _selectedDueDate = pickedDate;
+    });
     }
-  }
 
-  void _saveTask() {
+  Future<void> _saveTask() async {
     if (_formKey.currentState!.validate()) {
       final task = Task(
         id: widget.taskToEdit?.id ?? const Uuid().v4(),
@@ -65,16 +64,24 @@ class _AddEditTaskScreenState extends State<AddEditTaskScreen> {
         dueDate: _selectedDueDate,
         priority: _selectedPriority,
       );
-
-      Navigator.of(context).pop(task);
+      if (_isEditing) {
+        await TaskService.updateTask(task.id, task.toFirestore());
+        await TaskService.showSuccessDialog(context, 'Task updated successfully!');
+      } else {
+        await TaskService.addTask(task);
+        await TaskService.showSuccessDialog(context, 'Task added successfully!');
+      }
+      if (mounted) Navigator.of(context).pop();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      backgroundColor: colorScheme.background,
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Task' : 'Add New Task'),
         actions: [
@@ -84,82 +91,168 @@ class _AddEditTaskScreenState extends State<AddEditTaskScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Task Title', style: textTheme.labelLarge),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(hintText: 'What do you need to do?'),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Please enter a task title'
-                    : null,
-              ),
-              const SizedBox(height: 24),
-              Text('Description', style: textTheme.labelLarge),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(hintText: 'Add more details... (Optional)'),
-                maxLines: 4,
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Due Date', style: textTheme.labelLarge),
-                        const SizedBox(height: 8),
-                        InkWell(
-                          onTap: _pickDueDate,
-                          child: InputDecorator(
-                            decoration: const InputDecoration(hintText: 'Select Date (Optional)'),
-                            child: Text(
-                              _selectedDueDate == null
-                                  ? 'Not Set'
-                                  : DateFormat.yMMMd().format(_selectedDueDate!),
-                            ),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              color: colorScheme.surface,
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.title, color: colorScheme.primary),
+                          const SizedBox(width: 8),
+                          Text('Task Title', style: textTheme.labelLarge),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _titleController,
+                        decoration: const InputDecoration(
+                          hintText: 'What do you need to do?',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) => value == null || value.trim().isEmpty
+                            ? 'Please enter a task title'
+                            : null,
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Icon(Icons.notes, color: colorScheme.primary),
+                          const SizedBox(width: 8),
+                          Text('Description', style: textTheme.labelLarge),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _descriptionController,
+                        decoration: const InputDecoration(
+                          hintText: 'Add more details... (Optional)',
+                          border: OutlineInputBorder(),
+                        ),
+                        maxLines: 4,
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today, color: colorScheme.primary),
+                          const SizedBox(width: 8),
+                          Text('Due Date', style: textTheme.labelLarge),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: _pickDueDate,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            hintText: 'Select Date (Optional)',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            suffixIcon: Icon(Icons.edit_calendar, color: colorScheme.primary),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.event, color: colorScheme.primary),
+                              const SizedBox(width: 8),
+                              Text(
+                                _selectedDueDate == null
+                                    ? 'Not Set'
+                                    : DateFormat.yMMMd().format(_selectedDueDate!),
+                                style: textTheme.bodyLarge,
+                              ),
+                              if (_selectedDueDate != null) ...[
+                                const Spacer(),
+                                IconButton(
+                                  icon: Icon(Icons.clear, color: colorScheme.error),
+                                  onPressed: () {
+                                    setState(() => _selectedDueDate = null);
+                                  },
+                                  tooltip: 'Clear Date',
+                                ),
+                              ]
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Priority', style: textTheme.labelLarge),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<TaskPriority>(
-                          value: _selectedPriority,
-                          items: TaskPriority.values.map((priority) {
-                            return DropdownMenuItem(
-                              value: priority,
-                              child: Text(priority.name[0].toUpperCase() + priority.name.substring(1)),
-                            );
-                          }).toList(),
-                          onChanged: (newValue) {
-                            if (newValue != null) {
-                              setState(() {
-                                _selectedPriority = newValue;
-                              });
-                            }
-                          },
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Icon(Icons.flag, color: colorScheme.primary),
+                          const SizedBox(width: 8),
+                          Text('Priority', style: textTheme.labelLarge),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 10,
+                        children: TaskPriority.values.map((priority) {
+                          final isSelected = _selectedPriority == priority;
+                          Color chipColor;
+                          IconData chipIcon;
+                          switch (priority) {
+                            case TaskPriority.high:
+                              chipColor = Colors.red;
+                              chipIcon = Icons.priority_high;
+                              break;
+                            case TaskPriority.medium:
+                              chipColor = Colors.orange;
+                              chipIcon = Icons.trending_up;
+                              break;
+                            case TaskPriority.low:
+                              chipColor = Colors.green;
+                              chipIcon = Icons.low_priority;
+                              break;
+                          }
+                          return ChoiceChip(
+                            label: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(chipIcon, color: Colors.white, size: 18),
+                                const SizedBox(width: 4),
+                                Text(priority.name[0].toUpperCase() + priority.name.substring(1)),
+                              ],
+                            ),
+                            selected: isSelected,
+                            selectedColor: chipColor,
+                            backgroundColor: chipColor.withOpacity(0.2),
+                            labelStyle: TextStyle(
+                              color: isSelected ? Colors.white : chipColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            onSelected: (_) {
+                              setState(() => _selectedPriority = priority);
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 32),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          icon: Icon(_isEditing ? Icons.save : Icons.add_task),
+                          label: Text(_isEditing ? 'Save Changes' : 'Add Task'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            textStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: _saveTask,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ],
+            ),
           ),
         ),
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 
 class SignUpScreen extends StatefulWidget {
@@ -23,33 +24,55 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
+  Future<void> _showSuccessDialog(String message) async {
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 48),
+            const SizedBox(height: 8),
+            const Text('Success', textAlign: TextAlign.center),
+          ],
+        ),
+        content: Text(message, textAlign: TextAlign.center),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _signUp() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
-
-      await Future.delayed(const Duration(seconds: 2)); // Simulate network delay
-
-      setState(() => _isLoading = false); // Stop loading indicator
-
-      // --- Placeholder Navigation ---
-      
-      bool signupSuccess = true; 
-      if (signupSuccess && mounted) {
-        // Navigate back to login screen after signup (or directly to home)
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Signup Successful! Please Login.')),
+      try {
+        final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
         );
-         if (Navigator.canPop(context)) {
-           Navigator.pop(context); // Go back to Login screen
-         }
-        
-      } else if (mounted) {
-        // Show error message
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Signup Failed. Please try again.')),
-        );
+        await userCredential.user?.sendEmailVerification();
+        if (mounted) {
+          await _showSuccessDialog('Verification email sent! Please check your inbox and verify your email before logging in.');
+          if (Navigator.canPop(context)) {
+            Navigator.pop(context); // Go back to Login screen
+          }
+        }
+      } on FirebaseAuthException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.message ?? 'Signup Failed. Please try again.')),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
-      
     }
   }
 
@@ -96,7 +119,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 const SizedBox(height: 32),
                 TextFormField(
                   controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'Email'),
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    border: OutlineInputBorder(),
+                  ),
                   keyboardType: TextInputType.emailAddress,
                   validator: (value) {
                     if (value == null || value.isEmpty || !value.contains('@')) {
@@ -108,7 +134,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _passwordController,
-                  decoration: const InputDecoration(labelText: 'Password'),
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    border: OutlineInputBorder(),
+                  ),
                   obscureText: true,
                   validator: (value) {
                     if (value == null || value.isEmpty || value.length < 6) {
@@ -120,7 +149,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                  const SizedBox(height: 16),
                 TextFormField(
                   controller: _confirmPasswordController,
-                  decoration: const InputDecoration(labelText: 'Confirm Password'),
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm Password',
+                    border: OutlineInputBorder(),
+                  ),
                   obscureText: true,
                   validator: (value) {
                     if (value == null || value.isEmpty) {

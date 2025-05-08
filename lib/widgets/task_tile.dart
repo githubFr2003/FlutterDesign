@@ -43,106 +43,167 @@ class TaskTile extends StatelessWidget {
     );
     final defaultTextStyle = TextStyle(color: colorScheme.onSurface);
 
-    return Card( // Use CardTheme from AppTheme
-      clipBehavior: Clip.antiAlias, // Ensure priority bar clips correctly
-      child: Dismissible(
-        key: Key(task.id),
-        background: Container(
-          color: colorScheme.errorContainer,
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20.0),
-          child: Icon(Icons.delete_sweep_outlined, color: colorScheme.onErrorContainer),
-        ),
-        direction: DismissDirection.endToStart,
-        onDismissed: (direction) => onDelete(),
-        // Add confirmDismiss dialog if desired (as in previous Firebase version)
-        child: InkWell( // Make the whole area tappable
-          onTap: onTap,
-          child: Row(
-            children: [
-              // --- Priority Indicator Bar ---
-              Container(
-                width: 6.0, // Width of the bar
-                height: 75, // Estimate height or calculate dynamically if needed
-                color: task.isCompleted ? Colors.grey.shade400 : _getPriorityColor(context),
-              ),
-              // --- Checkbox ---
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Checkbox(
-                  value: task.isCompleted,
-                  onChanged: onStatusChanged,
-                  // Style from CheckboxTheme
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 350),
+      transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+      child: Card(
+        key: ValueKey(task.id + task.isCompleted.toString()),
+        clipBehavior: Clip.antiAlias,
+        child: Dismissible(
+          key: Key(task.id),
+          background: Container(
+            color: Colors.green.shade400,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.only(left: 20.0),
+            child: Icon(Icons.check_circle, color: Colors.white, size: 32),
+          ),
+          secondaryBackground: Container(
+            color: colorScheme.errorContainer,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20.0),
+            child: Icon(Icons.delete_sweep_outlined, color: colorScheme.onErrorContainer, size: 32),
+          ),
+          direction: DismissDirection.horizontal,
+          confirmDismiss: (direction) async {
+            if (direction == DismissDirection.startToEnd && !task.isCompleted) {
+              // Swipe right to complete
+              return await showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Mark as Complete?'),
+                  content: const Text('Do you want to mark this task as complete?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Complete'),
+                    ),
+                  ],
                 ),
-              ),
-              // --- Main Content ---
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10.0).copyWith(right: 8), // Adjust padding
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // --- Title ---
-                      Text(
-                        task.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: (task.isCompleted ? completedTextStyle : defaultTextStyle).copyWith(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
+              );
+            } else if (direction == DismissDirection.endToStart) {
+              // Swipe left to delete
+              return await showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Delete Task?'),
+                  content: const Text('Are you sure you want to delete this task?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: colorScheme.error,
+                        foregroundColor: colorScheme.onError,
                       ),
-                      // --- Optional Description ---
-                      if (task.description != null && task.description!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4.0),
-                          child: Text(
-                            task.description!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: (task.isCompleted ? completedTextStyle : defaultTextStyle).copyWith(
-                              fontSize: 13.5,
-                              color: task.isCompleted ? Colors.grey.shade500 : Colors.grey.shade600,
-                            ),
-                          ),
-                        ),
-                      // --- Due Date ---
-                      if (task.dueDate != null)
-                         Padding(
-                           padding: const EdgeInsets.only(top: 6.0),
-                           child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                   Icons.calendar_today_outlined,
-                                   size: 15,
-                                   color: isOverdue ? colorScheme.error : Colors.grey.shade600
-                                ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  DateFormat.MMMd().format(task.dueDate!), // Shorter date format
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: isOverdue ? colorScheme.error : Colors.grey.shade600,
-                                    fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
-                                  ),
-                                ),
-                              ],
-                           ),
-                         ),
-                    ],
+                      child: const Text('Delete'),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return false;
+          },
+          onDismissed: (direction) {
+            if (direction == DismissDirection.startToEnd && !task.isCompleted) {
+              onStatusChanged(true);
+            } else if (direction == DismissDirection.endToStart) {
+              onDelete();
+            }
+          },
+          child: InkWell(
+            onTap: onTap,
+            child: Row(
+              children: [
+                // --- Priority Indicator Bar ---
+                Container(
+                  width: 6.0,
+                  height: 75,
+                  color: task.isCompleted ? Colors.grey.shade400 : _getPriorityColor(context),
+                ),
+                // --- Checkbox ---
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Checkbox(
+                    value: task.isCompleted,
+                    onChanged: onStatusChanged,
                   ),
                 ),
-              ),
-              // --- Delete Button ---
-              IconButton(
-                icon: Icon(Icons.delete_outline, color: Colors.grey.shade500),
-                onPressed: onDelete,
-                tooltip: 'Delete Task',
-                padding: const EdgeInsets.all(12), // Ensure decent tap area
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
+                // --- Main Content ---
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0).copyWith(right: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // --- Title ---
+                        Text(
+                          task.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: (task.isCompleted ? completedTextStyle : defaultTextStyle).copyWith(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        // --- Optional Description ---
+                        if (task.description != null && task.description!.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text(
+                              task.description!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: (task.isCompleted ? completedTextStyle : defaultTextStyle).copyWith(
+                                fontSize: 13.5,
+                                color: task.isCompleted ? Colors.grey.shade500 : Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        // --- Due Date ---
+                        if (task.dueDate != null)
+                           Padding(
+                             padding: const EdgeInsets.only(top: 6.0),
+                             child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                     Icons.calendar_today_outlined,
+                                     size: 15,
+                                     color: isOverdue ? colorScheme.error : Colors.grey.shade600
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    DateFormat.MMMd().format(task.dueDate!),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: isOverdue ? colorScheme.error : Colors.grey.shade600,
+                                      fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
+                                    ),
+                                  ),
+                                ],
+                             ),
+                           ),
+                      ],
+                    ),
+                  ),
+                ),
+                // --- Delete Button ---
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: Colors.grey.shade500),
+                  onPressed: onDelete,
+                  tooltip: 'Delete Task',
+                  padding: const EdgeInsets.all(12),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
           ),
         ),
       ),

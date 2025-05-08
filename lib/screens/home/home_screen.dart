@@ -3,13 +3,27 @@ import 'package:flutter_activity/models/task.dart';
 import 'package:flutter_activity/screens/auth/login_screen.dart';
 import 'package:flutter_activity/screens/home/add_edit_task_screen.dart';
 import 'package:flutter_activity/widgets/task_tile.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_activity/services/task_service.dart';
+import 'package:flutter_activity/screens/home/task_info_screen.dart';
+import 'package:flutter_activity/screens/home/settings_screen.dart';
 
 // Enums for filter/sort (keep for UI state)
-enum TaskFilter { all, pending, completed, dueToday /*, dueThisWeek */ }
+enum TaskFilter { all, pending, completed, dueToday }
 enum TaskSort { createdAt, dueDate, priority }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final bool isDarkMode;
+  final ValueChanged<bool> onThemeChanged;
+  final VoidCallback onSignOut;
+
+  const HomeScreen({
+    super.key,
+    required this.isDarkMode,
+    required this.onThemeChanged,
+    required this.onSignOut,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -24,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
 
 
-  bool _isLoading = false; // To show a loading indicator
+  final bool _isLoading = false; // To show a loading indicator
 
   @override
   void initState() {
@@ -115,12 +129,60 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _logout() {
-    // Redirect to LoginScreen - Stays the same
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-      (Route<dynamic> route) => false,
+  void _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
     );
+    if (shouldLogout == true) {
+      await FirebaseAuth.instance.signOut();
+      await GoogleSignIn().signOut();
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 48),
+              const SizedBox(height: 8),
+              const Text('Success', textAlign: TextAlign.center),
+            ],
+          ),
+          content: const Text('Logged out successfully!', textAlign: TextAlign.center),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => LoginScreen(
+            isDarkMode: widget.isDarkMode,
+            onThemeChanged: widget.onThemeChanged,
+            onSignOut: widget.onSignOut,
+          ),
+        ),
+        (Route<dynamic> route) => false,
+      );
+    }
   }
 
   // --- Filter Chip Builder (UI only) ---
@@ -149,13 +211,9 @@ class _HomeScreenState extends State<HomeScreen> {
      );
   }
 
-  void _handleDelete(String taskId, String taskTitle) {
-     
-     // TODO: Call backend to delete task with taskId
-     print("Delete Task (Placeholder): ID ");
-      ScaffoldMessenger.of(context).showSnackBar(
-       SnackBar(content: Text('Task "$taskTitle" deleted.'), backgroundColor: Colors.redAccent),
-     );
+  Future<void> _handleDelete(String taskId, String taskTitle) async {
+    await TaskService.deleteTask(taskId);
+    await TaskService.showSuccessDialog(context, 'Task deleted successfully!');
   }
 
   // --- Build Method (Modified List View) ---
@@ -163,155 +221,240 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
      final theme = Theme.of(context);
      final colorScheme = theme.colorScheme;
-
-    // --- Static Example Tasks for Design ---
-    final List<Task> staticExampleTasks = [
-      Task(id: 'static-1', title: 'Design Mockups', createdAt: DateTime.now().subtract(const Duration(days: 2)), priority: TaskPriority.high, isCompleted: false, dueDate: DateTime.now().add(const Duration(days: 1))),
-      Task(id: 'static-2', title: 'Setup Backend API', description: 'HEHEHEHEHE', createdAt: DateTime.now().subtract(const Duration(days: 1)), priority: TaskPriority.medium, isCompleted: false, dueDate: DateTime.now().add(const Duration(days: 5))),
-      Task(id: 'static-3', title: 'Review PR #123', createdAt: DateTime.now(), priority: TaskPriority.low, isCompleted: true),
-      Task(id: 'static-4', title: 'Client Meeting', createdAt: DateTime.now().subtract(const Duration(hours: 4)), priority: TaskPriority.medium, isCompleted: false, dueDate: DateTime.now().add(const Duration(hours: 2))),
-    ];
+     final textTheme = theme.textTheme;
 
     return Scaffold(
+      backgroundColor: colorScheme.background,
       appBar: AppBar(
         title: const Text('TaskFlow'),
+        elevation: 0.5,
         actions: [
-          // --- Sort Menu (UI only) ---
-          PopupMenuButton<TaskSort>(
-            icon: const Icon(Icons.sort_rounded),
-            tooltip: "Sort Tasks",
-            onSelected: _setSort, // Still updates UI state
-             itemBuilder: (BuildContext context) => <PopupMenuEntry<TaskSort>>[
-              PopupMenuItem<TaskSort>(
-                value: TaskSort.createdAt,
-                child: ListTile(
-                  leading: Icon(_currentSort == TaskSort.createdAt ? Icons.check : null, color: colorScheme.primary),
-                  title: const Text('Date Created'),
-                  trailing: _currentSort == TaskSort.createdAt ? Icon(_sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 18) : null,
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: PopupMenuButton<TaskSort>(
+              icon: const Icon(Icons.sort_rounded),
+              tooltip: "Sort Tasks",
+              onSelected: _setSort,
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<TaskSort>>[
+                PopupMenuItem<TaskSort>(
+                  value: TaskSort.createdAt,
+                  child: ListTile(
+                    leading: Icon(_currentSort == TaskSort.createdAt ? Icons.check : null, color: colorScheme.primary),
+                    title: const Text('Date Created'),
+                    trailing: _currentSort == TaskSort.createdAt ? Icon(_sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 18) : null,
+                  ),
                 ),
-              ),
-              PopupMenuItem<TaskSort>(
-                value: TaskSort.dueDate,
-                 child: ListTile(
-                  leading: Icon(_currentSort == TaskSort.dueDate ? Icons.check : null, color: colorScheme.primary),
-                   title: const Text('Due Date'),
-                   trailing: _currentSort == TaskSort.dueDate ? Icon(_sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 18) : null,
-                 ),
-              ),
-               PopupMenuItem<TaskSort>(
-                value: TaskSort.priority,
-                 child: ListTile(
-                   leading: Icon(_currentSort == TaskSort.priority ? Icons.check : null, color: colorScheme.primary),
-                   title: const Text('Priority'),
-                   trailing: _currentSort == TaskSort.priority ? Icon(_sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 18) : null,
-                 ),
-              ),
-            ],
+                PopupMenuItem<TaskSort>(
+                  value: TaskSort.dueDate,
+                  child: ListTile(
+                    leading: Icon(_currentSort == TaskSort.dueDate ? Icons.check : null, color: colorScheme.primary),
+                    title: const Text('Due Date'),
+                    trailing: _currentSort == TaskSort.dueDate ? Icon(_sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 18) : null,
+                  ),
+                ),
+                PopupMenuItem<TaskSort>(
+                  value: TaskSort.priority,
+                  child: ListTile(
+                    leading: Icon(_currentSort == TaskSort.priority ? Icons.check : null, color: colorScheme.primary),
+                    title: const Text('Priority'),
+                    trailing: _currentSort == TaskSort.priority ? Icon(_sortDescending ? Icons.arrow_downward : Icons.arrow_upward, size: 18) : null,
+                  ),
+                ),
+              ],
+            ),
           ),
-          // --- Logout Button ---
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => SettingsScreen(
+                    isDarkMode: widget.isDarkMode,
+                    onThemeChanged: widget.onThemeChanged,
+                    onSignOut: widget.onSignOut,
+                  ),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout_outlined),
             tooltip: 'Logout',
             onPressed: _logout,
           ),
         ],
-         bottom: PreferredSize( // Search Bar (UI only)
-           preferredSize: const Size.fromHeight(60.0),
-           child: Padding(
-             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-             child: TextField(
-               controller: _searchController,
-               decoration: InputDecoration(
-                 hintText: 'Search tasks (backend)...', // Hint updated
-                 prefixIcon: const Icon(Icons.search),
-                 border: OutlineInputBorder(
-                   borderRadius: BorderRadius.circular(25.0),
-                   borderSide: BorderSide.none,
-                 ),
-                 filled: true,
-                 fillColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-                 contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                 suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear(); // Listener will handle state update
-                        },
-                      )
-                    : null,
-               ),
-               
-             ),
-           ),
-         ),
       ),
-      body: Column(
-        children: [
-          // --- Filter Chips (UI only) ---
-           Padding(
-             padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 8.0),
-             child: SingleChildScrollView(
-               scrollDirection: Axis.horizontal,
-               child: Row(
-                  children: [
-                     _buildFilterChip(TaskFilter.pending, 'Pending', Icons.pending_actions_outlined),
-                     _buildFilterChip(TaskFilter.dueToday, 'Due Today', Icons.today_outlined),
-                     _buildFilterChip(TaskFilter.completed, 'Completed', Icons.check_circle_outline),
-                     _buildFilterChip(TaskFilter.all, 'All', Icons.inbox_outlined),
-                  ],
-               ),
-             ),
-           ),
-
-          // --- Task List (Static Examples) ---
-          Expanded(
-            child: _isLoading // Optional: Show loading indicator while fetching
-              ? const Center(child: CircularProgressIndicator())
-              : staticExampleTasks.isEmpty && !_isLoading // Show empty state if needed
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // --- Filter/Search Bar (modern Card) ---
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+              child: Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                color: colorScheme.surface,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Search tasks...',
+                          prefixIcon: Icon(Icons.search, color: colorScheme.primary),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18.0),
+                            borderSide: BorderSide.none,
+                          ),
+                          filled: true,
+                          fillColor: colorScheme.surfaceVariant.withOpacity(0.4),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: Icon(Icons.clear, color: colorScheme.primary),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                  },
+                                )
+                              : null,
+                        ),
+                        style: TextStyle(fontSize: 16, color: colorScheme.onSurface),
+                      ),
+                      const SizedBox(height: 14),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
                           children: [
-                            Icon(Icons.inbox_outlined, size: 80, color: Colors.grey.shade300),
-                            const SizedBox(height: 20),
-                            Text(
-                              'No tasks found', // Generic empty message
-                              style: theme.textTheme.headlineSmall?.copyWith(color: Colors.grey.shade500),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Tap the + button to add a new task.',
-                              style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey.shade500),
-                              textAlign: TextAlign.center,
-                            ),
+                            _buildFilterChip(TaskFilter.pending, 'Pending', Icons.pending_actions_outlined),
+                            _buildFilterChip(TaskFilter.dueToday, 'Due Today', Icons.today_outlined),
+                            _buildFilterChip(TaskFilter.completed, 'Completed', Icons.check_circle_outline),
+                            _buildFilterChip(TaskFilter.all, 'All', Icons.inbox_outlined),
                           ],
                         ),
                       ),
-                    )
-                  : ListView.builder( // Display static examples
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      itemCount: staticExampleTasks.length,
-                      itemBuilder: (context, index) {
-                        final task = staticExampleTasks[index];
-                        return TaskTile(
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            // --- Task List (Firestore) ---
+            Expanded(
+              child: StreamBuilder<List<Task>>(
+                stream: TaskService.getUserTasksStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: \\${snapshot.error}'));
+                  }
+                  final tasks = snapshot.data ?? [];
+                  final now = DateTime.now();
+                  List<Task> filteredTasks = tasks;
+                  switch (_currentFilter) {
+                    case TaskFilter.pending:
+                      filteredTasks = tasks.where((t) => !t.isCompleted).toList();
+                      break;
+                    case TaskFilter.completed:
+                      filteredTasks = tasks.where((t) => t.isCompleted).toList();
+                      break;
+                    case TaskFilter.dueToday:
+                      filteredTasks = tasks.where((t) =>
+                        t.dueDate != null &&
+                        t.dueDate!.year == now.year &&
+                        t.dueDate!.month == now.month &&
+                        t.dueDate!.day == now.day
+                      ).toList();
+                      break;
+                    case TaskFilter.all:
+                      // No filter
+                      break;
+                  }
+                  if (_searchQuery.isNotEmpty) {
+                    filteredTasks = filteredTasks.where((t) =>
+                      t.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                      (t.description?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false)
+                    ).toList();
+                  }
+                  // Sort the filteredTasks list
+                  filteredTasks.sort((a, b) {
+                    int cmp = 0;
+                    switch (_currentSort) {
+                      case TaskSort.createdAt:
+                        cmp = a.createdAt.compareTo(b.createdAt);
+                        break;
+                      case TaskSort.dueDate:
+                        if (a.dueDate == null && b.dueDate == null) cmp = 0;
+                        else if (a.dueDate == null) cmp = 1;
+                        else if (b.dueDate == null) cmp = -1;
+                        else cmp = a.dueDate!.compareTo(b.dueDate!);
+                        break;
+                      case TaskSort.priority:
+                        cmp = b.priority.index.compareTo(a.priority.index);
+                        break;
+                    }
+                    return _sortDescending ? -cmp : cmp;
+                  });
+                  if (filteredTasks.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.inbox, size: 64, color: colorScheme.primary.withOpacity(0.18)),
+                          const SizedBox(height: 18),
+                          Text(
+                            'No tasks found for this filter.',
+                            style: TextStyle(fontSize: 18, color: colorScheme.onSurface.withOpacity(0.6)),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                    itemCount: filteredTasks.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 14),
+                    itemBuilder: (context, index) {
+                      final task = filteredTasks[index];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                        child: TaskTile(
                           task: task,
-                          // --- Connect TaskTile actions to placeholder handlers ---
-                          onStatusChanged: (value) => _handleStatusChange(task.id, task.isCompleted),
-                          onTap: () => _navigateToEditTaskScreen(task),
+                          onStatusChanged: (value) async {
+                            await TaskService.toggleTaskCompleted(task.id, value ?? false);
+                            if (value == true) {
+                              await TaskService.showSuccessDialog(context, 'Task marked as done!');
+                            }
+                          },
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => TaskInfoScreen(task: task),
+                              ),
+                            );
+                          },
                           onDelete: () => _handleDelete(task.id, task.title),
-                        );
-                      },
-                    ),
-          ),
-        ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToAddTaskScreen, // Still navigates
+        onPressed: _navigateToAddTaskScreen,
         tooltip: 'Add Task',
         child: const Icon(Icons.add),
+        elevation: 4,
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
